@@ -13,8 +13,7 @@ import org.springframework.boot.context.embedded.*;
 import org.springframework.context.annotation.*;
 
 /**
- * Spring boot application that defines the routes available for order
- * routing.
+ * Spring boot application that defines the routes available for order routing.
  * 
  * @author Michael Hoffman, NVISIA
  *
@@ -44,7 +43,7 @@ public class OrderRouter extends FatJarRouter {
             // CORS (resource sharing) enablement
             apiProperty("cors", "true").
             // Use localhost for calls
-            apiProperty("host", "localhost:8080").
+            apiProperty("host", "localhost:8083").
             // Set base path
             apiProperty("base.path", "nvisia-order-router-camel-service/api");
 
@@ -60,53 +59,63 @@ public class OrderRouter extends FatJarRouter {
             // Define the type used for output, in this case the order
             outType(String.class).
             // Next, define where the message is routed to, first transformation
-      to("bean:orderRouterService?method=transformOrderFormToOrder(${body})").
-      to("direct:enrichOrder");
-      
+            to("bean:orderRouterService?method=transformOrderFormToOrder(${body})")
+            .to("direct:enrichOrder");
+
       // Definition of the enrich order endpoint
       from("direct:enrichOrder").
-         // Use the Content Enricher EIP to aggregate customer info in the order. 
-         enrich("http4://localhost:8080/nvisia-customer-camel-service/api/customer/{body.customerId}", new AggregationStrategy() {            
-            @Override
-            public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
-               Order originalBody = (Order)oldExchange.getIn().getBody();
-               Customer resourceResponse = (Customer)newExchange.getIn().getBody();
-               originalBody.setCustomer(resourceResponse);
-               if (oldExchange.getPattern().isOutCapable()) {
-                  oldExchange.getOut().setBody(originalBody);
-               } else {
-                  oldExchange.getIn().setBody(originalBody);
+            // Use the Content Enricher EIP to aggregate customer info in the
+            // order.
+      enrich(
+            "http4://localhost:8081/nvisia-customer-camel-service/api/customer/${body.customerId}",
+            new AggregationStrategy() {
+               @Override
+               public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
+                  Order originalBody = (Order) oldExchange.getIn().getBody();
+                  Customer resourceResponse = (Customer) newExchange.getIn().getBody();
+                  originalBody.setCustomer(resourceResponse);
+                  if (oldExchange.getPattern().isOutCapable()) {
+                     oldExchange.getOut().setBody(originalBody);
+                  } else {
+                     oldExchange.getIn().setBody(originalBody);
+                  }
+                  return oldExchange;
                }
-               return oldExchange;
-            }
-         }).
-         // Use the Content Enricher EIP to aggregate catalog info in the order. 
-         enrich("http4://localhost:8080/nvisia-catalog-camel-service/api/customer/{body.catalogItemId}", new AggregationStrategy() {            
-            @Override
-            public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
-               Order originalBody = (Order)oldExchange.getIn().getBody();
-               CatalogItem resourceResponse = (CatalogItem)newExchange.getIn().getBody();
-               originalBody.setCatalogItem(resourceResponse);
-               if (oldExchange.getPattern().isOutCapable()) {
-                  oldExchange.getOut().setBody(originalBody);
-               } else {
-                  oldExchange.getIn().setBody(originalBody);
+            }).
+            // Use the Content Enricher EIP to aggregate catalog info in the
+            // order.
+      enrich(
+            "http4://localhost:8080/nvisia-catalog-camel-service/api/customer/${body.catalogItemId}",
+            new AggregationStrategy() {
+               @Override
+               public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
+                  Order originalBody = (Order) oldExchange.getIn().getBody();
+                  CatalogItem resourceResponse = (CatalogItem) newExchange.getIn()
+                        .getBody();
+                  originalBody.setCatalogItem(resourceResponse);
+                  if (oldExchange.getPattern().isOutCapable()) {
+                     oldExchange.getOut().setBody(originalBody);
+                  } else {
+                     oldExchange.getIn().setBody(originalBody);
+                  }
+                  return oldExchange;
                }
-               return oldExchange;
-            }
-         }).
-         to("direct:sendOrder");
-      
+            }).to("direct:sendOrder");
+
       // Definition of the send order endpoint
       from("direct:sendOrder").
-         // Need to define the content type on the header
-         setHeader(org.apache.camel.Exchange.CONTENT_TYPE, constant("application/json")).
-         // Be safe and define this as a post
-         setHeader(Exchange.HTTP_METHOD, constant(org.apache.camel.component.http4.HttpMethods.POST)).
-         // Finally, send the order to be managed and get back the order ID
-         to("http4://localhost:8080/nvisia-order-management-camel-service/api/order"); 
+            // Need to define the content type on the header
+            setHeader(org.apache.camel.Exchange.CONTENT_TYPE,
+                  constant("application/json"))
+            .
+            // Be safe and define this as a post
+            setHeader(Exchange.HTTP_METHOD,
+                  constant(org.apache.camel.component.http4.HttpMethods.POST))
+            .
+            // Finally, send the order to be managed and get back the order ID
+            to("http4://localhost:8082/nvisia-order-management-camel-service/api/order");
    }
-   
+
    @Bean
    public ServletRegistrationBean camelServletRegistrationBean() {
       ServletRegistrationBean registration = new ServletRegistrationBean(
