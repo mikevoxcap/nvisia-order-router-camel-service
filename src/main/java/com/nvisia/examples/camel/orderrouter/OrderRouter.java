@@ -66,41 +66,54 @@ public class OrderRouter extends FatJarRouter {
       from("direct:enrichOrder").
             // Use the Content Enricher EIP to aggregate customer info in the
             // order.
-      enrich(
-            "http4://localhost:8081/nvisia-customer-camel-service/api/customer/${body.customerId}",
-            new AggregationStrategy() {
-               @Override
-               public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
-                  Order originalBody = (Order) oldExchange.getIn().getBody();
-                  Customer resourceResponse = (Customer) newExchange.getIn().getBody();
-                  originalBody.setCustomer(resourceResponse);
-                  if (oldExchange.getPattern().isOutCapable()) {
-                     oldExchange.getOut().setBody(originalBody);
-                  } else {
-                     oldExchange.getIn().setBody(originalBody);
-                  }
-                  return oldExchange;
-               }
-            }).
+      setHeader(Exchange.HTTP_URI,
+            simple(
+                  "http4://localhost:8081/nvisia-customer-camel-service/api/customer/${body.customerId}"))
+            .setHeader(Exchange.HTTP_METHOD, constant("GET"))
+            .enrich(
+                  "http4://localhost:8081/nvisia-customer-camel-service/api/customer/${body.customerId}",
+                  new AggregationStrategy() {
+                     @Override
+                     public Exchange aggregate(Exchange oldExchange,
+                           Exchange newExchange) {
+                        Order originalBody = (Order) oldExchange.getIn().getBody();
+                        Customer resourceResponse = (Customer) newExchange.getIn()
+                              .getBody();
+                        originalBody.setCustomer(resourceResponse);
+                        if (oldExchange.getPattern().isOutCapable()) {
+                           oldExchange.getOut().setBody(originalBody);
+                        } else {
+                           oldExchange.getIn().setBody(originalBody);
+                        }
+                        return oldExchange;
+                     }
+                  })
+            .
             // Use the Content Enricher EIP to aggregate catalog info in the
             // order.
-      enrich(
-            "http4://localhost:8080/nvisia-catalog-camel-service/api/customer/${body.catalogItemId}",
-            new AggregationStrategy() {
-               @Override
-               public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
-                  Order originalBody = (Order) oldExchange.getIn().getBody();
-                  CatalogItem resourceResponse = (CatalogItem) newExchange.getIn()
-                        .getBody();
-                  originalBody.setCatalogItem(resourceResponse);
-                  if (oldExchange.getPattern().isOutCapable()) {
-                     oldExchange.getOut().setBody(originalBody);
-                  } else {
-                     oldExchange.getIn().setBody(originalBody);
-                  }
-                  return oldExchange;
-               }
-            }).to("direct:sendOrder");
+      setHeader(Exchange.HTTP_URI,
+            simple(
+                  "http4://localhost:8080/nvisia-catalog-camel-service/api/customer/${body.catalogItemId}"))
+            .setHeader(Exchange.HTTP_METHOD, constant("GET"))
+            .enrich(
+                  "http4://localhost:8080/nvisia-catalog-camel-service/api/customer/${body.catalogItemId}",
+                  new AggregationStrategy() {
+                     @Override
+                     public Exchange aggregate(Exchange oldExchange,
+                           Exchange newExchange) {
+                        Order originalBody = (Order) oldExchange.getIn().getBody();
+                        CatalogItem resourceResponse = (CatalogItem) newExchange.getIn()
+                              .getBody();
+                        originalBody.setCatalogItem(resourceResponse);
+                        if (oldExchange.getPattern().isOutCapable()) {
+                           oldExchange.getOut().setBody(originalBody);
+                        } else {
+                           oldExchange.getIn().setBody(originalBody);
+                        }
+                        return oldExchange;
+                     }
+                  })
+            .to("direct:sendOrder");
 
       // Definition of the send order endpoint
       from("direct:sendOrder").
