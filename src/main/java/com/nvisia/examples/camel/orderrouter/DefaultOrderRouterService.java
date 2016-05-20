@@ -11,10 +11,4 @@ import org.springframework.stereotype.*;
 @Service("bean:orderRouterService")
 public class DefaultOrderRouterService implements OrderRouterService {
 
-   @Override
-   public Order transformOrderFormToOrder(OrderForm orderForm) {
-      return new Order(orderForm.getCustomerId(), orderForm.getCatalogItemId()); 
-   }
-
-
 }

@@ -122,6 +122,12 @@
 		</dependency>
 
 		<dependency>
+			<groupId>org.apache.camel</groupId>
+			<artifactId>camel-cxf</artifactId>
+			<version>${camel.version}</version>
+		</dependency>
+
+		<dependency>
 			<artifactId>jackson-annotations</artifactId>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<version>2.7.2</version>

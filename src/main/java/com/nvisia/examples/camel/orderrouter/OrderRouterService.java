@@ -8,5 +8,4 @@ package com.nvisia.examples.camel.orderrouter;
  */
 public interface OrderRouterService {
 
-   Order transformOrderFormToOrder(OrderForm orderForm);
 }

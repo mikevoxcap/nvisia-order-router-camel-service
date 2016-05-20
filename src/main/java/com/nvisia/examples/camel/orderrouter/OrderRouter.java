@@ -3,7 +3,9 @@ package com.nvisia.examples.camel.orderrouter;
 import java.util.*;
 
 import org.apache.camel.*;
+import org.apache.camel.component.jackson.*;
 import org.apache.camel.component.servlet.*;
+import org.apache.camel.model.dataformat.*;
 import org.apache.camel.model.rest.*;
 import org.apache.camel.processor.aggregate.*;
 import org.apache.camel.spring.boot.*;
@@ -11,6 +13,8 @@ import org.apache.camel.swagger.servlet.*;
 import org.springframework.boot.autoconfigure.*;
 import org.springframework.boot.context.embedded.*;
 import org.springframework.context.annotation.*;
+
+import com.fasterxml.jackson.databind.*;
 
 /**
  * Spring boot application that defines the routes available for order routing.
@@ -23,110 +27,145 @@ public class OrderRouter extends FatJarRouter {
 
    @Override
    public void configure() {
+      initializeRestConfiguration();
+      initializeRoute();
+   }
+
+   protected void initializeRestConfiguration() {
       // Start by building an instance of RestConfigurationDefinition. Need to
       // specify the component we are going to use for enabling REST endpoints,
       // specifically CamelServlet in this case. Set the binding mode to JSON.
-      restConfiguration().
+      restConfiguration()
             // Leverage the CamelServlet component for the REST DSL
-            component("servlet").
+            .component("servlet")
             // Bind using JSON
-            bindingMode(RestBindingMode.json).
+            .bindingMode(RestBindingMode.json)
             // I like pretty things...
-            dataFormatProperty("prettyPrint", "true").
+            .dataFormatProperty("prettyPrint", "true")
             // This is the context path to be used for Swagger API documentation
-            apiContextPath("api-doc").
+            .apiContextPath("api-doc")
             // Properties for Swagger
             // Title of the API
-      apiProperty("api.title", "Order Management API").
+            .apiProperty("api.title", "Order Management API")
             // Version of the API
-            apiProperty("api.version", "1.0.0").
+            .apiProperty("api.version", "1.0.0")
             // CORS (resource sharing) enablement
-            apiProperty("cors", "true").
+            .apiProperty("cors", "true")
             // Use localhost for calls
-            apiProperty("host", "localhost:8083").
+            .apiProperty("host", "localhost:8083")
             // Set base path
-            apiProperty("base.path", "nvisia-order-router-camel-service/api");
+            .apiProperty("base.path", "nvisia-order-router-camel-service/api");
+   }
+
+   protected void initializeRoute() {
+      JacksonDataFormat jacksonDataFormat = new JacksonDataFormat(Order.class);
+      jacksonDataFormat.disableFeature(SerializationFeature.FAIL_ON_EMPTY_BEANS);
 
       // Definition of the post order endpoint
-      rest("/orderRouter").
-            // This is a POST method call for routing an order using the
-            // order form
-      post().
+      rest("/orderRouter")
+            // This is a POST method call for routing an order using the order
+            // form
+            .post()
             // Description of what the method does
-            description("Routes a new order to the order management service").
+            .description("Routes a new order to the order management service")
             // Define the type used for input
-            type(OrderForm.class).
+            .type(OrderForm.class)
             // Define the type used for output, in this case the order
-            outType(String.class).
-            // Next, define where the message is routed to, first transformation
-            to("bean:orderRouterService?method=transformOrderFormToOrder(${body})")
-            .to("direct:enrichOrder");
+            .outType(String.class)
+            // Now, process the order
+            .to("direct:processOrder");
 
-      // Definition of the enrich order endpoint
-      from("direct:enrichOrder").
-            // Use the Content Enricher EIP to aggregate customer info in the
-            // order.
-      setHeader(Exchange.HTTP_URI,
-            simple(
-                  "http4://localhost:8081/nvisia-customer-camel-service/api/customer/${body.customerId}"))
-            .setHeader(Exchange.HTTP_METHOD, constant("GET"))
-            .enrich(
-                  "http4://localhost:8081/nvisia-customer-camel-service/api/customer/${body.customerId}",
-                  new AggregationStrategy() {
-                     @Override
-                     public Exchange aggregate(Exchange oldExchange,
-                           Exchange newExchange) {
-                        Order originalBody = (Order) oldExchange.getIn().getBody();
-                        Customer resourceResponse = (Customer) newExchange.getIn()
-                              .getBody();
-                        originalBody.setCustomer(resourceResponse);
-                        if (oldExchange.getPattern().isOutCapable()) {
-                           oldExchange.getOut().setBody(originalBody);
-                        } else {
-                           oldExchange.getIn().setBody(originalBody);
-                        }
-                        return oldExchange;
+      // This is the route that processes the order sent. First, we need to take
+      // the data from the order form passed, put it in the header and empty out
+      // the body of our incoming exchange.
+      from("direct:processOrder")
+            // Set header for customer ID
+            .setHeader("customerId", simple("${body.customerId}"))
+            // Set header for catalog item ID
+            .setHeader("catalogItemId", simple("${body.catalogItemId}"))
+            // Empty the body
+            .setBody(constant(""))
+            // Now, aggregate the data to an order type
+            .end()
+            // Use multicasting to call the customer and catalog item services
+            // in parallel. Then, use a strategy that groups the exchanges
+            // returned from the service calls into a single list for
+            // processing.
+            .multicast(new GroupedExchangeAggregationStrategy())
+            // Use parallel processing
+            .parallelProcessing()
+            // Send to two direct components to get the data
+            .to("direct:getCustomerData", "direct:getCatalogItemData")
+            // End the multicast call
+            .end()
+            // Now process the exchange
+            .process(new Processor() {
+               @Override
+               public void process(Exchange exchange) throws Exception {
+                  List<Exchange> exchanges = exchange.getIn().getBody(List.class);
+                  Order order = new Order();
+                  for (Exchange exchangeToProcess : exchanges) {
+                     if (exchangeToProcess.getIn().getBody() instanceof Customer) {
+                        order.setCustomer(
+                              exchangeToProcess.getIn().getBody(Customer.class));
+                     } else if (exchangeToProcess.getIn()
+                           .getBody() instanceof CatalogItem) {
+                        order.setCatalogItem(
+                              exchangeToProcess.getIn().getBody(CatalogItem.class));
+                     } else {
+                        // Ignore it for now.
                      }
-                  })
-            .
-            // Use the Content Enricher EIP to aggregate catalog info in the
-            // order.
-      setHeader(Exchange.HTTP_URI,
-            simple(
-                  "http4://localhost:8080/nvisia-catalog-camel-service/api/customer/${body.catalogItemId}"))
-            .setHeader(Exchange.HTTP_METHOD, constant("GET"))
-            .enrich(
-                  "http4://localhost:8080/nvisia-catalog-camel-service/api/customer/${body.catalogItemId}",
-                  new AggregationStrategy() {
-                     @Override
-                     public Exchange aggregate(Exchange oldExchange,
-                           Exchange newExchange) {
-                        Order originalBody = (Order) oldExchange.getIn().getBody();
-                        CatalogItem resourceResponse = (CatalogItem) newExchange.getIn()
-                              .getBody();
-                        originalBody.setCatalogItem(resourceResponse);
-                        if (oldExchange.getPattern().isOutCapable()) {
-                           oldExchange.getOut().setBody(originalBody);
-                        } else {
-                           oldExchange.getIn().setBody(originalBody);
-                        }
-                        return oldExchange;
-                     }
-                  })
-            .to("direct:sendOrder");
-
-      // Definition of the send order endpoint
-      from("direct:sendOrder").
-            // Need to define the content type on the header
-            setHeader(org.apache.camel.Exchange.CONTENT_TYPE,
+                  }
+                  exchange.getIn().setBody(order);
+               }
+            })
+            // End this processor definition
+            .end()
+            // We can now send the order to order management. Need to define the
+            // content type on the header
+            .setHeader(org.apache.camel.Exchange.CONTENT_TYPE,
                   constant("application/json"))
-            .
             // Be safe and define this as a post
-            setHeader(Exchange.HTTP_METHOD,
+            .setHeader(Exchange.HTTP_METHOD,
                   constant(org.apache.camel.component.http4.HttpMethods.POST))
-            .
+            // Set the HTTP uri to be used.
+            .setHeader("CamelHttpUri",
+                  simple(
+                        "http://localhost:8082/nvisia-order-management-camel-service/api/order"))
+            .marshal(jacksonDataFormat)
             // Finally, send the order to be managed and get back the order ID
-            to("http4://localhost:8082/nvisia-order-management-camel-service/api/order");
+            .to("http4://localhost:8082/nvisia-order-management-camel-service/api/order");
+
+      // Retrieves the customer data from the REST service for customer.
+      from("direct:getCustomerData")
+            // Set the http method as GET
+            .setHeader("CamelHttpMethod", constant("GET"))
+            // Set the HTTP uri to be used.
+            .setHeader("CamelHttpUri", simple(
+                  "http://localhost:8081/nvisia-customer-camel-service/api/customer/${header.customerId}"))
+            // Define the endpoint; though, url will be ignored in favor of
+            // header
+            .to("http4://localhost:8081/nvisia-customer-camel-service/api/customer/${header.customerId}")
+            // Next, convert the input stream returned to a string
+            .convertBodyTo(String.class)
+            // Finally, unmarshal the string to an object
+            .unmarshal().json(JsonLibrary.Jackson, Customer.class);
+
+      // Retrieves the catalog item data from the REST service for catalog
+      // items.
+      from("direct:getCatalogItemData")
+            // Set the http method as GET
+            .setHeader("CamelHttpMethod", constant("GET"))
+            // Set the HTTP uri to be used.
+            .setHeader("CamelHttpUri", simple(
+                  "http://localhost:8080/nvisia-catalog-camel-service/api/catalogItem/${header.catalogItemId}"))
+            // Define the endpoint; though, url will be ignored in favor of
+            // header
+            .to("http4://localhost:8080/nvisia-catalog-camel-service/api/catalogItem/${header.catalogItemId}")
+            // Next, convert the input stream returned to a string
+            .convertBodyTo(String.class)
+            // Finally, unmarshal the string to an object
+            .unmarshal().json(JsonLibrary.Jackson, CatalogItem.class);
    }
 
    @Bean
