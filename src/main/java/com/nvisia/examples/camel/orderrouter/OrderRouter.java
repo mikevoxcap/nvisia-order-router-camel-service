@@ -3,7 +3,6 @@ package com.nvisia.examples.camel.orderrouter;
 import java.util.*;
 
 import org.apache.camel.*;
-import org.apache.camel.component.jackson.*;
 import org.apache.camel.component.servlet.*;
 import org.apache.camel.model.dataformat.*;
 import org.apache.camel.model.rest.*;
@@ -13,8 +12,6 @@ import org.apache.camel.swagger.servlet.*;
 import org.springframework.boot.autoconfigure.*;
 import org.springframework.boot.context.embedded.*;
 import org.springframework.context.annotation.*;
-
-import com.fasterxml.jackson.databind.*;
 
 /**
  * Spring boot application that defines the routes available for order routing.
@@ -58,20 +55,16 @@ public class OrderRouter extends FatJarRouter {
    }
 
    protected void initializeRoute() {
-      JacksonDataFormat jacksonDataFormat = new JacksonDataFormat(Order.class);
-      jacksonDataFormat.disableFeature(SerializationFeature.FAIL_ON_EMPTY_BEANS);
-
       // Definition of the post order endpoint
       rest("/orderRouter")
-            // This is a POST method call for routing an order using the order
-            // form
+            // The POST method call for routing an order using the order form
             .post()
             // Description of what the method does
             .description("Routes a new order to the order management service")
             // Define the type used for input
             .type(OrderForm.class)
             // Define the type used for output, in this case the order
-            .outType(String.class)
+            .outType(Order.class)
             // Now, process the order
             .to("direct:processOrder");
 
@@ -103,7 +96,7 @@ public class OrderRouter extends FatJarRouter {
                @Override
                public void process(Exchange exchange) throws Exception {
                   List<Exchange> exchanges = exchange.getIn().getBody(List.class);
-                  Order order = new Order();
+                  ManagedOrderForm order = new ManagedOrderForm();
                   for (Exchange exchangeToProcess : exchanges) {
                      if (exchangeToProcess.getIn().getBody() instanceof Customer) {
                         order.setCustomer(
@@ -116,11 +109,18 @@ public class OrderRouter extends FatJarRouter {
                         // Ignore it for now.
                      }
                   }
+                  order.setOrderDate(new Date(System.currentTimeMillis()));
                   exchange.getIn().setBody(order);
                }
             })
             // End this processor definition
             .end()
+            // Need to marshal the body to JSON
+            .marshal()
+            // Need to use JSON for marshalling
+            .json(JsonLibrary.Jackson)
+            // Then convert it to a string
+            .convertBodyTo(String.class)
             // We can now send the order to order management. Need to define the
             // content type on the header
             .setHeader(org.apache.camel.Exchange.CONTENT_TYPE,
@@ -129,12 +129,14 @@ public class OrderRouter extends FatJarRouter {
             .setHeader(Exchange.HTTP_METHOD,
                   constant(org.apache.camel.component.http4.HttpMethods.POST))
             // Set the HTTP uri to be used.
-            .setHeader("CamelHttpUri",
-                  simple(
-                        "http://localhost:8082/nvisia-order-management-camel-service/api/order"))
-            .marshal(jacksonDataFormat)
+            .setHeader("CamelHttpUri", simple(
+                  "http://localhost:8082/nvisia-order-management-camel-service/api/order"))
             // Finally, send the order to be managed and get back the order ID
-            .to("http4://localhost:8082/nvisia-order-management-camel-service/api/order");
+            .to("http4://localhost:8082/nvisia-order-management-camel-service/api/order")
+            // Next, convert the input stream returned to a string
+            .convertBodyTo(String.class)
+            // Finally, unmarshal the string to an object
+            .unmarshal().json(JsonLibrary.Jackson, Order.class);
 
       // Retrieves the customer data from the REST service for customer.
       from("direct:getCustomerData")

@@ -8,17 +8,16 @@ import java.util.*;
  * @author Michael Hoffman, NVISIA
  *
  */
-public class Order {
+public class ManagedOrderForm {
 
    private Date orderDate;
    private Customer customer;
    private CatalogItem catalogItem;
-   private String orderNumber;
 
    /**
     * Default constructor
     */
-   public Order() {
+   public ManagedOrderForm() {
       super();
    }
 
@@ -31,13 +30,11 @@ public class Order {
     * @param catalogItemId
     * @param catalogItem
     */
-   public Order(Date orderDate, Customer customer, CatalogItem catalogItem,
-         String orderNumber) {
+   public ManagedOrderForm(Date orderDate, Customer customer, CatalogItem catalogItem) {
       super();
       this.orderDate = orderDate;
       this.customer = customer;
       this.catalogItem = catalogItem;
-      this.orderNumber = orderNumber;
    }
 
    /**
@@ -85,21 +82,6 @@ public class Order {
       this.catalogItem = catalogItem;
    }
 
-   /**
-    * @return the orderNumber
-    */
-   public String getOrderNumber() {
-      return orderNumber;
-   }
-
-   /**
-    * @param orderNumber
-    *           the orderNumber to set
-    */
-   public void setOrderNumber(String orderNumber) {
-      this.orderNumber = orderNumber;
-   }
-
    /*
     * (non-Javadoc)
     * 
@@ -123,10 +105,6 @@ public class Order {
          builder.append("catalogItem=");
          builder.append(catalogItem);
          builder.append(", ");
-      }
-      if (orderNumber != null) {
-         builder.append("orderNumber=");
-         builder.append(orderNumber);
       }
       builder.append("]");
       return builder.toString();
