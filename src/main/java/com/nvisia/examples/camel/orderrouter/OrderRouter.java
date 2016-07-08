@@ -25,7 +25,7 @@ public class OrderRouter extends FatJarRouter {
    @Override
    public void configure() {
       initializeRestConfiguration();
-      initializeRoute();
+      initializeOrderRoute();
    }
 
    protected void initializeRestConfiguration() {
@@ -54,7 +54,7 @@ public class OrderRouter extends FatJarRouter {
             .apiProperty("base.path", "nvisia-order-router-camel-service/api");
    }
 
-   protected void initializeRoute() {
+   protected void initializeOrderRoute() {
       // Definition of the post order endpoint
       rest("/orderRouter")
             // The POST method call for routing an order using the order form
